@@ -14,9 +14,9 @@ https://github.com/fchollet/keras/blob/master/keras/utils/training_utils.py
 """
 
 import tensorflow as tf
-import keras.backend as K
-import keras.layers as KL
-import keras.models as KM
+import tensorflow.keras.backend as K
+import tensorflow.keras.layers as KL
+import tensorflow.keras.models as KM
 
 
 class ParallelModel(KM.Model):
@@ -94,7 +94,7 @@ class ParallelModel(KM.Model):
                 # across it. If they don't, then the output is likely a loss
                 # or a metric value that gets averaged across the batch.
                 # Keras expects losses and metrics to be scalars.
-                if K.int_shape(outputs[0]) == ():
+                if tf.shape(outputs[0]) == ():
                     # Average
                     m = KL.Lambda(lambda o: tf.add_n(o) / len(outputs), name=name)(outputs)
                 else:
@@ -113,7 +113,7 @@ if __name__ == "__main__":
 
     import os
     import numpy as np
-    import keras.optimizers
+    import tensorflow.keras.optimizers
     from keras.datasets import mnist
     from keras.preprocessing.image import ImageDataGenerator
 

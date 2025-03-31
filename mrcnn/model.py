@@ -17,18 +17,18 @@ from collections import OrderedDict
 import multiprocessing
 import numpy as np
 import tensorflow as tf
-import keras
-import keras.backend as K
-import keras.layers as KL
-import keras.engine as KE
-import keras.models as KM
+import tensorflow.keras
+import tensorflow.keras.backend as K
+import tensorflow.keras.layers as KL
+# import tensorflow.keras.engine as KE
+import tensorflow.keras.models as KM
 
-from mrcnn import utils
+from . import utils
 
 # Requires TensorFlow 1.3+ and Keras 2.0.8+.
 from distutils.version import LooseVersion
 assert LooseVersion(tf.__version__) >= LooseVersion("1.3")
-assert LooseVersion(keras.__version__) >= LooseVersion('2.0.8')
+assert LooseVersion(tf.keras.__version__) >= LooseVersion('2.0.8')
 
 
 ############################################################
@@ -243,16 +243,16 @@ def clip_boxes_graph(boxes, window):
     wy1, wx1, wy2, wx2 = tf.split(window, 4)
     y1, x1, y2, x2 = tf.split(boxes, 4, axis=1)
     # Clip
-    y1 = tf.maximum(tf.minimum(y1, wy2), wy1)
-    x1 = tf.maximum(tf.minimum(x1, wx2), wx1)
-    y2 = tf.maximum(tf.minimum(y2, wy2), wy1)
-    x2 = tf.maximum(tf.minimum(x2, wx2), wx1)
+    y1 = tf.math.maximum(tf.math.minimum(y1, wy2), wy1)
+    x1 = tf.math.maximum(tf.math.minimum(x1, wx2), wx1)
+    y2 = tf.math.maximum(tf.math.minimum(y2, wy2), wy1)
+    x2 = tf.math.maximum(tf.math.minimum(x2, wx2), wx1)
     clipped = tf.concat([y1, x1, y2, x2], axis=1, name="clipped_boxes")
     clipped.set_shape((clipped.shape[0], 4))
     return clipped
 
 
-class ProposalLayer(KE.Layer):
+class ProposalLayer(KL.Layer):
     """Receives anchor scores and selects a subset to pass as proposals
     to the second stage. Filtering is done based on anchor scores and
     non-max suppression to remove overlaps. It also applies bounding
@@ -284,7 +284,7 @@ class ProposalLayer(KE.Layer):
 
         # Improve performance by trimming to top anchors by score
         # and doing the rest on the smaller subset.
-        pre_nms_limit = tf.minimum(self.config.PRE_NMS_LIMIT, tf.shape(anchors)[1])
+        pre_nms_limit = tf.math.minimum(self.config.PRE_NMS_LIMIT, tf.shape(anchors)[1])
         ix = tf.nn.top_k(scores, pre_nms_limit, sorted=True,
                          name="top_anchors").indices
         scores = utils.batch_slice([scores, ix], lambda x, y: tf.gather(x, y),
@@ -321,7 +321,7 @@ class ProposalLayer(KE.Layer):
                 self.nms_threshold, name="rpn_non_max_suppression")
             proposals = tf.gather(boxes, indices)
             # Pad if needed
-            padding = tf.maximum(self.proposal_count - tf.shape(proposals)[0], 0)
+            padding = tf.math.maximum(self.proposal_count - tf.shape(proposals)[0], 0)
             proposals = tf.pad(proposals, [(0, padding), (0, 0)])
             return proposals
         proposals = utils.batch_slice([boxes, scores], nms,
@@ -338,10 +338,10 @@ class ProposalLayer(KE.Layer):
 
 def log2_graph(x):
     """Implementation of Log2. TF doesn't have a native implementation."""
-    return tf.log(x) / tf.log(2.0)
+    return tf.math.log(x) / tf.math.log(2.0)
 
 
-class PyramidROIAlign(KE.Layer):
+class PyramidROIAlign(KL.Layer):
     """Implements ROI Pooling on multiple levels of the feature pyramid.
 
     Params:
@@ -388,8 +388,8 @@ class PyramidROIAlign(KE.Layer):
         # e.g. a 224x224 ROI (in pixels) maps to P4
         image_area = tf.cast(image_shape[0] * image_shape[1], tf.float32)
         roi_level = log2_graph(tf.sqrt(h * w) / (224.0 / tf.sqrt(image_area)))
-        roi_level = tf.minimum(5, tf.maximum(
-            2, 4 + tf.cast(tf.round(roi_level), tf.int32)))
+        roi_level = tf.math.minimum(5, tf.math.maximum(
+            2, 4 + tf.cast(tf.math.round(roi_level), tf.int32)))
         roi_level = tf.squeeze(roi_level, 2)
 
         # Loop through levels and apply ROI pooling to each. P2 to P5.
@@ -468,11 +468,11 @@ def overlaps_graph(boxes1, boxes2):
     # 2. Compute intersections
     b1_y1, b1_x1, b1_y2, b1_x2 = tf.split(b1, 4, axis=1)
     b2_y1, b2_x1, b2_y2, b2_x2 = tf.split(b2, 4, axis=1)
-    y1 = tf.maximum(b1_y1, b2_y1)
-    x1 = tf.maximum(b1_x1, b2_x1)
-    y2 = tf.minimum(b1_y2, b2_y2)
-    x2 = tf.minimum(b1_x2, b2_x2)
-    intersection = tf.maximum(x2 - x1, 0) * tf.maximum(y2 - y1, 0)
+    y1 = tf.math.maximum(b1_y1, b2_y1)
+    x1 = tf.math.maximum(b1_x1, b2_x1)
+    y2 = tf.math.minimum(b1_y2, b2_y2)
+    x2 = tf.math.minimum(b1_x2, b2_x2)
+    intersection = tf.math.maximum(x2 - x1, 0) * tf.math.maximum(y2 - y1, 0)
     # 3. Compute unions
     b1_area = (b1_y2 - b1_y1) * (b1_x2 - b1_x1)
     b2_area = (b2_y2 - b2_y1) * (b2_x2 - b2_x1)
@@ -603,13 +603,13 @@ def detection_targets_graph(proposals, gt_class_ids, gt_boxes, gt_masks, config)
 
     # Threshold mask pixels at 0.5 to have GT masks be 0 or 1 to use with
     # binary cross entropy loss.
-    masks = tf.round(masks)
+    masks = tf.math.round(masks)
 
     # Append negative ROIs and pad bbox deltas and masks that
     # are not used for negative ROIs with zeros.
     rois = tf.concat([positive_rois, negative_rois], axis=0)
     N = tf.shape(negative_rois)[0]
-    P = tf.maximum(config.TRAIN_ROIS_PER_IMAGE - tf.shape(rois)[0], 0)
+    P = tf.math.maximum(config.TRAIN_ROIS_PER_IMAGE - tf.shape(rois)[0], 0)
     rois = tf.pad(rois, [(0, P), (0, 0)])
     roi_gt_boxes = tf.pad(roi_gt_boxes, [(0, N + P), (0, 0)])
     roi_gt_class_ids = tf.pad(roi_gt_class_ids, [(0, N + P)])
@@ -619,7 +619,7 @@ def detection_targets_graph(proposals, gt_class_ids, gt_boxes, gt_masks, config)
     return rois, roi_gt_class_ids, deltas, masks
 
 
-class DetectionTargetLayer(KE.Layer):
+class DetectionTargetLayer(KL.Layer):
     """Subsamples proposals and generates target box refinement, class_ids,
     and masks for each.
 
@@ -681,83 +681,293 @@ class DetectionTargetLayer(KE.Layer):
 #  Detection Layer
 ############################################################
 
+# original code
+
+# def refine_detections_graph(rois, probs, deltas, window, config):
+#     """Refine classified proposals and filter overlaps and return final
+#     detections.
+
+#     Inputs:
+#         rois: [N, (y1, x1, y2, x2)] in normalized coordinates
+#         probs: [N, num_classes]. Class probabilities.
+#         deltas: [N, num_classes, (dy, dx, log(dh), log(dw))]. Class-specific
+#                 bounding box deltas.
+#         window: (y1, x1, y2, x2) in normalized coordinates. The part of the image
+#             that contains the image excluding the padding.
+
+#     Returns detections shaped: [num_detections, (y1, x1, y2, x2, class_id, score)] where
+#         coordinates are normalized.
+#     """
+#     # Class IDs per ROI
+#     class_ids = tf.argmax(probs, axis=1, output_type=tf.int32)
+#     # Class probability of the top class of each ROI
+#     batch_size = tf.shape(probs)[0]  # 동적 배치 크기
+#     indices = tf.stack([tf.range(batch_size), class_ids], axis=1)
+#     class_scores = tf.gather_nd(probs, indices)
+#     # Class-specific bounding box deltas
+#     deltas_specific = tf.gather_nd(deltas, indices)
+#     # Apply bounding box deltas
+#     # Shape: [boxes, (y1, x1, y2, x2)] in normalized coordinates
+#     refined_rois = apply_box_deltas_graph(
+#         rois, deltas_specific * config.BBOX_STD_DEV)
+#     # Clip boxes to image window
+#     refined_rois = clip_boxes_graph(refined_rois, window)
+
+#     # TODO: Filter out boxes with zero area
+
+#     # Filter out background boxes
+#     keep = tf.where(class_ids > 0)[:, 0]
+#     # Filter out low confidence boxes
+#     if config.DETECTION_MIN_CONFIDENCE:
+#         conf_keep = tf.where(class_scores >= config.DETECTION_MIN_CONFIDENCE)[:, 0]
+#         keep = tf.sets.set_intersection(tf.expand_dims(keep, 0),
+#                                         tf.expand_dims(conf_keep, 0))
+#         keep = tf.sparse_tensor_to_dense(keep)[0]
+
+#     # Apply per-class NMS
+#     # 1. Prepare variables
+#     pre_nms_class_ids = tf.gather(class_ids, keep)
+#     pre_nms_scores = tf.gather(class_scores, keep)
+#     pre_nms_rois = tf.gather(refined_rois,   keep)
+#     unique_pre_nms_class_ids = tf.unique(pre_nms_class_ids)[0]
+
+#     def nms_keep_map(class_id):
+#         """Apply Non-Maximum Suppression on ROIs of the given class."""
+#         # Indices of ROIs of the given class
+#         ixs = tf.where(tf.equal(pre_nms_class_ids, class_id))[:, 0]
+#         # Apply NMS
+#         class_keep = tf.image.non_max_suppression(
+#                 tf.gather(pre_nms_rois, ixs),
+#                 tf.gather(pre_nms_scores, ixs),
+#                 max_output_size=config.DETECTION_MAX_INSTANCES,
+#                 iou_threshold=config.DETECTION_NMS_THRESHOLD)
+#         # Map indices
+#         class_keep = tf.gather(keep, tf.gather(ixs, class_keep))
+#         # Pad with -1 so returned tensors have the same shape
+#         gap = config.DETECTION_MAX_INSTANCES - tf.shape(class_keep)[0]
+#         class_keep = tf.pad(class_keep, [(0, gap)],
+#                             mode='CONSTANT', constant_values=-1)
+#         # Set shape so map_fn() can infer result shape
+#         class_keep.set_shape([config.DETECTION_MAX_INSTANCES])
+#         return class_keep
+
+#     # 2. Map over class IDs
+#     nms_keep = tf.map_fn(nms_keep_map, unique_pre_nms_class_ids,
+#                          dtype=tf.int64)
+#     # 3. Merge results into one list, and remove -1 padding
+#     nms_keep = tf.reshape(nms_keep, [-1])
+#     nms_keep = tf.gather(nms_keep, tf.where(nms_keep > -1)[:, 0])
+#     # 4. Compute intersection between keep and nms_keep
+#     keep = tf.sets.set_intersection(tf.expand_dims(keep, 0),
+#                                     tf.expand_dims(nms_keep, 0))
+#     keep = tf.sparse_tensor_to_dense(keep)[0]
+#     # Keep top detections
+#     roi_count = config.DETECTION_MAX_INSTANCES
+#     class_scores_keep = tf.gather(class_scores, keep)
+#     num_keep = tf.math.minimum(tf.shape(class_scores_keep)[0], roi_count)
+#     top_ids = tf.nn.top_k(class_scores_keep, k=num_keep, sorted=True)[1]
+#     keep = tf.gather(keep, top_ids)
+
+#     # Arrange output as [N, (y1, x1, y2, x2, class_id, score)]
+#     # Coordinates are normalized.
+#     detections = tf.concat([
+#         tf.gather(refined_rois, keep),
+#         tf.to_float(tf.gather(class_ids, keep))[..., tf.newaxis],
+#         tf.gather(class_scores, keep)[..., tf.newaxis]
+#         ], axis=1)
+
+#     # Pad with zeros if detections < DETECTION_MAX_INSTANCES
+#     gap = config.DETECTION_MAX_INSTANCES - tf.shape(detections)[0]
+#     detections = tf.pad(detections, [(0, gap), (0, 0)], "CONSTANT")
+#     return detections
+
+# 2nd refine
+
+# def refine_detections_graph(rois, probs, deltas, window, config):
+    # """Refine classified proposals and filter overlaps and return final detections.
+
+    # Inputs:
+    #     rois: [N, (y1, x1, y2, x2)] in normalized coordinates
+    #     probs: [N, num_classes]. Class probabilities.
+    #     deltas: [N, num_classes, (dy, dx, log(dh), log(dw))]. Class-specific bounding box deltas.
+    #     window: (y1, x1, y2, x2) in normalized coordinates.
+
+    # Returns detections shaped: [num_detections, (y1, x1, y2, x2, class_id, score)] where
+    #     coordinates are normalized.
+    # """
+    # # Class IDs per ROI
+    # class_ids = tf.argmax(probs, axis=1, output_type=tf.int32)
+
+    # # Class probability of the top class of each ROI
+    # batch_size = tf.shape(probs)[0]
+    # indices = tf.stack([tf.range(batch_size), class_ids], axis=1)
+    # class_scores = tf.gather_nd(probs, indices)
+
+    # # Class-specific bounding box deltas
+    # deltas_specific = tf.map_fn(
+    #     lambda i: deltas[i, class_ids[i]],
+    #     tf.range(batch_size),
+    #     dtype=tf.float32
+    # )
+
+    # # Apply bounding box deltas
+    # refined_rois = apply_box_deltas_graph(rois, deltas_specific * config.BBOX_STD_DEV)
+
+    # # Clip boxes to image window
+    # refined_rois = clip_boxes_graph(refined_rois, window)
+
+    # # Filter out background boxes (class_id == 0)
+    # keep = tf.where(class_ids > 0)[:, 0]
+
+    # # Filter out low confidence boxes
+    # if config.DETECTION_MIN_CONFIDENCE:
+    #     conf_keep = tf.where(class_scores >= config.DETECTION_MIN_CONFIDENCE)[:, 0]
+    #     keep = tf.sets.set_intersection(
+    #         tf.expand_dims(keep, 0),
+    #         tf.expand_dims(conf_keep, 0)
+    #     )
+    #     keep = tf.sparse.to_dense(keep)[0]
+
+    # # Apply per-class NMS
+    # pre_nms_class_ids = tf.gather(class_ids, keep)
+    # pre_nms_scores = tf.gather(class_scores, keep)
+    # pre_nms_rois = tf.gather(refined_rois, keep)
+    # unique_pre_nms_class_ids = tf.unique(pre_nms_class_ids)[0]
+
+    # def nms_keep_map(class_id):
+    #     """Apply Non-Maximum Suppression on ROIs of the given class."""
+    #     ixs = tf.where(tf.equal(pre_nms_class_ids, class_id))[:, 0]
+    #     class_keep = tf.image.non_max_suppression(
+    #         tf.gather(pre_nms_rois, ixs),
+    #         tf.gather(pre_nms_scores, ixs),
+    #         max_output_size=config.DETECTION_MAX_INSTANCES,
+    #         iou_threshold=config.DETECTION_NMS_THRESHOLD
+    #     )
+    #     class_keep = tf.gather(keep, tf.gather(ixs, class_keep))
+
+    #     # Pad with -1 so tensors have same shape
+    #     gap = config.DETECTION_MAX_INSTANCES - tf.shape(class_keep)[0]
+    #     class_keep = tf.pad(class_keep, [(0, gap)], constant_values=-1)
+    #     class_keep.set_shape([config.DETECTION_MAX_INSTANCES])
+
+    #     return class_keep
+
+    # nms_keep = tf.map_fn(
+    #     nms_keep_map,
+    #     unique_pre_nms_class_ids,
+    #     dtype=tf.int64
+    # )
+
+    # nms_keep = tf.reshape(nms_keep, [-1])
+    # nms_keep = tf.gather(nms_keep, tf.where(nms_keep > -1)[:, 0])
+
+    # keep = tf.sets.set_intersection(
+    #     tf.expand_dims(keep, 0),
+    #     tf.expand_dims(nms_keep, 0)
+    # )
+    # keep = tf.sparse.to_dense(keep)[0]
+
+    # # Keep top detections
+    # roi_count = config.DETECTION_MAX_INSTANCES
+    # class_scores_keep = tf.gather(class_scores, keep)
+    # num_keep = tf.minimum(tf.shape(class_scores_keep)[0], roi_count)
+    # top_ids = tf.nn.top_k(class_scores_keep, k=num_keep, sorted=True)[1]
+    # keep = tf.gather(keep, top_ids)
+
+    # # Arrange output as [N, (y1, x1, y2, x2, class_id, score)]
+    # detections = tf.concat([
+    #     tf.gather(refined_rois, keep),
+    #     tf.cast(tf.gather(class_ids, keep), tf.float32)[..., tf.newaxis],
+    #     tf.gather(class_scores, keep)[..., tf.newaxis]
+    # ], axis=1)
+
+    # # Pad if detections < DETECTION_MAX_INSTANCES
+    # gap = config.DETECTION_MAX_INSTANCES - tf.shape(detections)[0]
+    # detections = tf.pad(detections, [(0, gap), (0, 0)], "CONSTANT")
+
+    # return detections
+
 def refine_detections_graph(rois, probs, deltas, window, config):
-    """Refine classified proposals and filter overlaps and return final
-    detections.
+    """Refine classified proposals and filter overlaps and return final detections.
 
     Inputs:
         rois: [N, (y1, x1, y2, x2)] in normalized coordinates
         probs: [N, num_classes]. Class probabilities.
         deltas: [N, num_classes, (dy, dx, log(dh), log(dw))]. Class-specific
                 bounding box deltas.
-        window: (y1, x1, y2, x2) in normalized coordinates. The part of the image
-            that contains the image excluding the padding.
+        window: (y1, x1, y2, x2) in normalized coordinates.
 
     Returns detections shaped: [num_detections, (y1, x1, y2, x2, class_id, score)] where
         coordinates are normalized.
     """
     # Class IDs per ROI
     class_ids = tf.argmax(probs, axis=1, output_type=tf.int32)
+
     # Class probability of the top class of each ROI
-    indices = tf.stack([tf.range(probs.shape[0]), class_ids], axis=1)
+    batch_size = tf.shape(probs)[0]
+    indices = tf.stack([tf.range(batch_size), class_ids], axis=1)
     class_scores = tf.gather_nd(probs, indices)
+
     # Class-specific bounding box deltas
     deltas_specific = tf.gather_nd(deltas, indices)
+
     # Apply bounding box deltas
-    # Shape: [boxes, (y1, x1, y2, x2)] in normalized coordinates
     refined_rois = apply_box_deltas_graph(
-        rois, deltas_specific * config.BBOX_STD_DEV)
+        rois, deltas_specific * config.BBOX_STD_DEV
+    )
+
     # Clip boxes to image window
     refined_rois = clip_boxes_graph(refined_rois, window)
 
-    # TODO: Filter out boxes with zero area
-
-    # Filter out background boxes
+    # Filter out background boxes (class_id == 0)
     keep = tf.where(class_ids > 0)[:, 0]
+
     # Filter out low confidence boxes
     if config.DETECTION_MIN_CONFIDENCE:
         conf_keep = tf.where(class_scores >= config.DETECTION_MIN_CONFIDENCE)[:, 0]
-        keep = tf.sets.set_intersection(tf.expand_dims(keep, 0),
-                                        tf.expand_dims(conf_keep, 0))
-        keep = tf.sparse_tensor_to_dense(keep)[0]
+        keep = tf.sets.set_intersection(
+            tf.expand_dims(keep, 0), tf.expand_dims(conf_keep, 0)
+        )
+        keep = tf.sparse.to_dense(keep)[0]
 
     # Apply per-class NMS
-    # 1. Prepare variables
     pre_nms_class_ids = tf.gather(class_ids, keep)
     pre_nms_scores = tf.gather(class_scores, keep)
-    pre_nms_rois = tf.gather(refined_rois,   keep)
+    pre_nms_rois = tf.gather(refined_rois, keep)
     unique_pre_nms_class_ids = tf.unique(pre_nms_class_ids)[0]
 
     def nms_keep_map(class_id):
         """Apply Non-Maximum Suppression on ROIs of the given class."""
-        # Indices of ROIs of the given class
         ixs = tf.where(tf.equal(pre_nms_class_ids, class_id))[:, 0]
-        # Apply NMS
         class_keep = tf.image.non_max_suppression(
-                tf.gather(pre_nms_rois, ixs),
-                tf.gather(pre_nms_scores, ixs),
-                max_output_size=config.DETECTION_MAX_INSTANCES,
-                iou_threshold=config.DETECTION_NMS_THRESHOLD)
-        # Map indices
+            tf.gather(pre_nms_rois, ixs),
+            tf.gather(pre_nms_scores, ixs),
+            max_output_size=config.DETECTION_MAX_INSTANCES,
+            iou_threshold=config.DETECTION_NMS_THRESHOLD
+        )
         class_keep = tf.gather(keep, tf.gather(ixs, class_keep))
-        # Pad with -1 so returned tensors have the same shape
+
         gap = config.DETECTION_MAX_INSTANCES - tf.shape(class_keep)[0]
-        class_keep = tf.pad(class_keep, [(0, gap)],
-                            mode='CONSTANT', constant_values=-1)
-        # Set shape so map_fn() can infer result shape
+        class_keep = tf.pad(class_keep, [(0, gap)], constant_values=-1)
         class_keep.set_shape([config.DETECTION_MAX_INSTANCES])
+
         return class_keep
 
-    # 2. Map over class IDs
-    nms_keep = tf.map_fn(nms_keep_map, unique_pre_nms_class_ids,
-                         dtype=tf.int64)
-    # 3. Merge results into one list, and remove -1 padding
+    nms_keep = tf.map_fn(
+        nms_keep_map,
+        unique_pre_nms_class_ids,
+        dtype=tf.int64
+    )
+
     nms_keep = tf.reshape(nms_keep, [-1])
     nms_keep = tf.gather(nms_keep, tf.where(nms_keep > -1)[:, 0])
-    # 4. Compute intersection between keep and nms_keep
-    keep = tf.sets.set_intersection(tf.expand_dims(keep, 0),
-                                    tf.expand_dims(nms_keep, 0))
-    keep = tf.sparse_tensor_to_dense(keep)[0]
+
+    keep = tf.sets.set_intersection(
+        tf.expand_dims(keep, 0),
+        tf.expand_dims(nms_keep, 0)
+    )
+    keep = tf.sparse.to_dense(keep)[0]
+
     # Keep top detections
     roi_count = config.DETECTION_MAX_INSTANCES
     class_scores_keep = tf.gather(class_scores, keep)
@@ -766,20 +976,21 @@ def refine_detections_graph(rois, probs, deltas, window, config):
     keep = tf.gather(keep, top_ids)
 
     # Arrange output as [N, (y1, x1, y2, x2, class_id, score)]
-    # Coordinates are normalized.
     detections = tf.concat([
         tf.gather(refined_rois, keep),
-        tf.to_float(tf.gather(class_ids, keep))[..., tf.newaxis],
+        tf.cast(tf.gather(class_ids, keep), tf.float32)[..., tf.newaxis],
         tf.gather(class_scores, keep)[..., tf.newaxis]
-        ], axis=1)
+    ], axis=1)
 
-    # Pad with zeros if detections < DETECTION_MAX_INSTANCES
+    # Pad if detections < DETECTION_MAX_INSTANCES
     gap = config.DETECTION_MAX_INSTANCES - tf.shape(detections)[0]
     detections = tf.pad(detections, [(0, gap), (0, 0)], "CONSTANT")
+
     return detections
 
 
-class DetectionLayer(KE.Layer):
+
+class DetectionLayer(KL.Layer):
     """Takes classified proposal boxes and their bounding box deltas and
     returns the final detection boxes.
 
@@ -947,9 +1158,11 @@ def fpn_classifier_graph(rois, feature_maps, image_meta,
     x = KL.TimeDistributed(KL.Dense(num_classes * 4, activation='linear'),
                            name='mrcnn_bbox_fc')(shared)
     # Reshape to [batch, num_rois, NUM_CLASSES, (dy, dx, log(dh), log(dw))]
-    s = K.int_shape(x)
-    mrcnn_bbox = KL.Reshape((s[1], num_classes, 4), name="mrcnn_bbox")(x)
-
+    s = tf.shape(x)
+    mrcnn_bbox = KL.Lambda(
+    lambda t: tf.reshape(t, (tf.shape(t)[0], num_classes, 4)),
+    name="mrcnn_bbox"
+)(x)
     return mrcnn_class_logits, mrcnn_probs, mrcnn_bbox
 
 
@@ -1119,7 +1332,7 @@ def mrcnn_bbox_loss_graph(target_bbox, target_class_ids, pred_bbox):
     # Reshape to merge batch and roi dimensions for simplicity.
     target_class_ids = K.reshape(target_class_ids, (-1,))
     target_bbox = K.reshape(target_bbox, (-1, 4))
-    pred_bbox = K.reshape(pred_bbox, (-1, K.int_shape(pred_bbox)[2], 4))
+    pred_bbox = K.reshape(pred_bbox, (-1, tf.shape(pred_bbox)[2], 4))
 
     # Only positive ROIs contribute to the loss. And only
     # the right class_id of each ROI. Get their indices.
@@ -2865,4 +3078,4 @@ def denorm_boxes_graph(boxes, shape):
     h, w = tf.split(tf.cast(shape, tf.float32), 2)
     scale = tf.concat([h, w, h, w], axis=-1) - tf.constant(1.0)
     shift = tf.constant([0., 0., 1., 1.])
-    return tf.cast(tf.round(tf.multiply(boxes, scale) + shift), tf.int32)
+    return tf.cast(tf.math.round(tf.multiply(boxes, scale) + shift), tf.int32)
